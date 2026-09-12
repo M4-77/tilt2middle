@@ -1,77 +1,162 @@
-# tilt2middle
-basically i accidentally superglued my middle mouse button so i wanted to rebind to the side scrolling middle mouse buttons but those sent a jitter signal so this basically deadzones that to fix the jitter and rebinds side scroll to middle mouse button
+tilt2middle
 
-tilt2middle - remap mouse tilt-wheel activity (horizontal scroll / tilt-left +
-tilt-right buttons) to a single middle-mouse button, with a debounce "deadzone".
+A small Linux utility that remaps mouse tilt-wheel input to the middle mouse button, with a configurable debounce/deadzone to prevent jitter.
 
-On many mice the tilt wheel does NOT send clean buttons - e.g. the Logitech G502
-sends a burst of REL_HWHEEL pulses (+/-120) that bounce/jitter at the press and
-release edges. Remapping those 1:1 to middle clicks makes it flicker. This tool
-instead keeps the middle button HELD while tilt activity is arriving, and only
-releases it once --debounce seconds have passed with no tilt activity at all.
+# Why?
 
-Default mode intercepts REL_HWHEEL (horizontal wheel). Use --buttons if your
-mouse reports the tilt as real buttons instead (e.g. BTN_SIDE / BTN_EXTRA).
+I accidentally superglued my middle mouse button. 
 
-###############################################################################
-# HOW TO INSTALL (run once after a fresh OS install):
-#
-# 1) Dependencies (Arch/CachyOS):
-#        sudo pacman -S python-evdev
-#
-# 2) Grant the desktop read access to the virtual device this tool creates.
-#    This is required for the remap to actually reach your apps. One time:
-#        python3 tilt2middle.py --udev-rule | sudo tee /etc/udev/rules.d/99-uinput-uaccess.rules >/dev/null
-#        sudo udevadm control --reload && sudo udevadm trigger
-#
-# 3) Test it works before installing the service:
-#        python3 tilt2middle.py --identify   # tilt the wheel, confirm REL codes
-#        python3 tilt2middle.py --verbose    # tilt -> middle button held
-#    Tilt left/right should produce a held middle click, released after the
-#    debounce deadzone (default 0.15s, tweak with --debounce).
-#
-# 4) Auto-start with a systemd USER service (no root needed to run it):
-#        mkdir -p ~/.config/systemd/user
-#        # save the service below as ~/.config/systemd/user/tilt2middle.service:
-#        systemctl --user daemon-reload
-#        systemctl --user enable --now tilt2middle.service
-#    Path used on this machine: /home/matt/.config/systemd/user/tilt2middle.service
-#    Logs / status:
-#        journalctl --user -u tilt2middle -f
-#        systemctl --user status tilt2middle
-#
-#    Service file contents:
-#        [Unit]
-#        Description=Tilt wheel to middle-mouse remap
-#        After=graphical-session.target
-#        [Service]
-#        ExecStart=/usr/bin/python3 /home/matt/tilt2middle.py
-#        Restart=on-failure
-#        [Install]
-#        WantedBy=graphical-session.target
-#
-# 5) Tuning:
-#        --debounce 0.2   longer hold if the button still flickers
-#        --left/--right   button codes instead of wheel pulses (with --buttons)
-#        --device         force a specific /dev/input/eventN
-#
-# NOTE: if the script prints "WARNING: the desktop cannot read the virtual
-# device", step 2 was not done (the compositor never sees the remapped input).
-###############################################################################
+I wanted to use my mouse's side-scrolling/tilt buttons as a replacement, but my Logitech G502 doesn't send clean button presses. Instead, the tilt wheel produces bursts of REL_HWHEEL events that can bounce around the press/release edges.
 
-Requires read/write on the device and /dev/uinput (root, or the 'input'+'uinput'
-groups / udev ACLs - normally granted to the active session user).
+Remapping those events directly causes the middle mouse button to flicker.
 
-The uinput VIRTUAL device it creates is usually NOT readable by your desktop
-(likewise keyd's). If the script exits with an access warning, install one udev
-rule (as root) and reload udev - see `--udev-rule`.
+tilt2middle solves this by treating tilt activity as a single held middle-click:
 
-Usage:
-    python3 tilt2middle.py [--device /dev/input/eventN] [--debounce 0.15] [--verbose]
-    python3 tilt2middle.py --buttons --left BTN_SIDE --right BTN_EXTRA
-    python3 tilt2middle.py --identify      # print live events to find the tilt codes
-    python3 tilt2middle.py --udev-rule     # print the access rule to install
-    python3 tilt2middle.py --list          # show devices and their capabilities
+    Tilt left/right → middle mouse button pressed
 
+    More tilt activity → middle button stays held
 
-DISCLAIMER: I DID NOT WRITE THIS. CLAUDE DID, THIS IS VIBECODED!!!! (claude was running locally though dont worry it wasnt through datacentres) BUT STILL DONT TAKE THIS AS MY WORK!!!!!!! I DIDNT MAKE THIS!!!!!!!!!! RAHH!!!!!!!!!! 
+    No tilt activity for --debounce seconds → middle button released
+
+By default, it listens for REL_HWHEEL events. It can also handle mice that expose tilt as actual buttons such as BTN_SIDE and BTN_EXTRA.
+Installation
+1. Install dependencies
+
+On Arch/CachyOS:
+
+sudo pacman -S python-evdev
+
+2. Allow your desktop to read the virtual device
+
+tilt2middle creates a virtual input device through /dev/uinput. Your desktop/compositor may not have permission to read it by default.
+
+Generate and install the required udev rule:
+
+python3 tilt2middle.py --udev-rule | sudo tee /etc/udev/rules.d/99-uinput-uaccess.rules >/dev/null
+sudo udevadm control --reload
+sudo udevadm trigger
+
+This only needs to be done once.
+3. Test it
+
+First, identify what your mouse sends when the wheel is tilted:
+
+python3 tilt2middle.py --identify
+
+Then run the remapper:
+
+python3 tilt2middle.py --verbose
+
+Tilting the wheel should now act as a middle mouse button. The button remains held while tilt events are being received and is released after the debounce period.
+
+The default debounce is 0.15 seconds.
+4. Start automatically with systemd
+
+Create the user service directory:
+
+mkdir -p ~/.config/systemd/user
+
+Save the following as:
+
+~/.config/systemd/user/tilt2middle.service
+
+[Unit]
+Description=Tilt wheel to middle-mouse remap
+After=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/python3 /home/matt/tilt2middle.py
+Restart=on-failure
+
+[Install]
+WantedBy=graphical-session.target
+
+Then enable it:
+
+systemctl --user daemon-reload
+systemctl --user enable --now tilt2middle.service
+
+Check its status:
+
+systemctl --user status tilt2middle
+
+View logs:
+
+journalctl --user -u tilt2middle -f
+
+    Note: Update the ExecStart path if tilt2middle.py is somewhere other than /home/matt/tilt2middle.py.
+
+Usage
+
+Basic usage:
+
+python3 tilt2middle.py
+
+Specify a device and debounce time:
+
+python3 tilt2middle.py --device /dev/input/eventN --debounce 0.2
+
+Enable verbose output:
+
+python3 tilt2middle.py --verbose
+
+Identify input events:
+
+python3 tilt2middle.py --identify
+
+List input devices and capabilities:
+
+python3 tilt2middle.py --list
+
+Mice that report tilt as buttons
+
+If your mouse reports tilt as actual buttons instead of REL_HWHEEL:
+
+python3 tilt2middle.py --buttons --left BTN_SIDE --right BTN_EXTRA
+
+Tuning
+
+If the middle button releases too quickly or the input is still jittery, increase the debounce time:
+
+python3 tilt2middle.py --debounce 0.2
+
+Other useful options:
+
+    --device — manually select a /dev/input/eventN device
+
+    --debounce — time to wait after the last tilt event before releasing middle-click
+
+    --buttons — use button events instead of REL_HWHEEL
+
+    --left / --right — specify the button codes when using --buttons
+
+    --verbose — print input/output events
+
+    --identify — monitor live input events
+
+    --list — list input devices and capabilities
+
+    --udev-rule — print the udev rule required for desktop access
+
+Permissions
+
+The script needs access to the input device and /dev/uinput.
+
+Depending on your system, this may require root privileges, membership in the input/uinput groups, or appropriate udev ACLs.
+
+The virtual device created by uinput is typically not readable by the desktop by default. If the script reports:
+
+WARNING: the desktop cannot read the virtual device
+
+install the udev rule using:
+
+python3 tilt2middle.py --udev-rule
+
+and follow the installation instructions above.
+Disclaimer
+
+I did not write this.
+
+This is completely vibecoded. Claude wrote the actual code for me — Claude was running locally, so at least it wasn't being sent off to some datacenter to think about my stupid mouse button.
+
+Please do not mistake this repository for my programming ability. I DID NOT MAKE THIS. RAHHH.
